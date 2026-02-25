@@ -1,3 +1,3 @@
-# Routh-Hurwitz Stability Analyzer
-# No external dependencies required
+-e # Routh-Hurwitz Stability Analyzer
 # Requires: Python 3.6+
+sympy

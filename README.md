@@ -1,255 +1,119 @@
 # Routh–Hurwitz Stability Analyzer
 
-A Python tool for analyzing the stability of linear control systems using the classical **Routh–Hurwitz criterion**.
-
-## What It Does
-
-Given a polynomial (characteristic equation of a control system), it:
-- **Builds the Routh table** automatically
-- **Counts sign changes** in the first column
-- **Determines the number of unstable poles** (right half-plane roots)
-- **Handles special cases**: zero rows, zero first columns with epsilon substitution
-- **Provides detailed notes** on computation steps
-
-## Key Features
-
-✅ **No dependencies** – Pure Python 3, no external packages  
-✅ **Automatic special case handling** – Auxiliary polynomial method for zero rows  
-✅ **Clear output formatting** – Easy-to-read Routh table display  
-✅ **Numerical stability** – Configurable tolerance for numerical errors  
-✅ **Well-documented** – Includes examples and detailed notes on computation  
-
-## Installation
-
-```bash
-git clone https://github.com/YOUR_USERNAME/routh-hurwitz.git
-cd routh-hurwitz
-```
-
-**No dependencies to install!** Just clone and run.
+A Python tool for analyzing polynomial stability using the **Routh–Hurwitz criterion**, with support for **symbolic parametric analysis**.
 
 ## Quick Start
 
-### Run Examples
-
 ```bash
+git clone https://github.com/PaoloScara/routh-hurwitz.git
+cd routh-hurwitz
+pip install sympy
+
+# Run examples
 python examples.py
-```
-
-### Use in Your Code
-
-```python
-from routh import routh_hurwitz, format_routh_table
-
-# Polynomial: s³ + 2s² + 3s + 4
-coeffs = [1, 2, 3, 4]
-
-result = routh_hurwitz(coeffs)
-
-# Display the table
-print(format_routh_table(result.table, degree=3))
-
-# Check stability
-if result.rhp_roots == 0:
-    print("✓ System is STABLE")
-else:
-    print(f"✗ System is UNSTABLE ({result.rhp_roots} unstable poles)")
 ```
 
 ## Usage
 
-### Basic Function
-
-```python
-result = routh_hurwitz(coeffs)
-```
-
-**Parameters:**
-- `coeffs` (list): Polynomial coefficients in **descending powers**
-  - Example: `[1, 2, 3, 4]` represents `s³ + 2s² + 3s + 4`
-- `tol` (float, default=1e-12): Tolerance for treating values as zero
-- `epsilon` (float, default=1e-6): Small positive value for zero substitution
-- `use_symbolic_epsilon` (bool): Whether to mark epsilon symbolically
-
-**Returns:** `RouthResult` with:
-- `table` – Complete Routh array (list of lists)
-- `first_column` – Leftmost column (used for stability analysis)
-- `sign_changes` – Number of sign changes in first column
-- `rhp_roots` – **Number of poles in right half-plane** ← Use this!
-- `notes` – Messages about special cases encountered
-
-### Stability Criterion
-
-- **Stable system**: All roots in left half-plane → `rhp_roots == 0`
-- **Unstable system**: Any roots in right half-plane → `rhp_roots > 0`
-- Number of unstable poles = number of sign changes in first column
-
-### Example: Check Stability
-
 ```python
 from routh import routh_hurwitz
 
-coeffs = [1, 3, 3, 1]  # s³ + 3s² + 3s + 1
-result = routh_hurwitz(coeffs)
+# Numeric — just pass coefficients (descending powers of s)
+routh_hurwitz([1, -4, 1, 6])              # s³ − 4s² + s + 6
 
-print(f"Unstable poles: {result.rhp_roots}")
-print(f"Status: {'STABLE ✓' if result.rhp_roots == 0 else 'UNSTABLE ✗'}")
+# Parametric with K evaluated
+routh_hurwitz([1, 6, 11, 6, "K+2"], K_val=5)
+
+# Symbolic — leave K_val=None to get stability conditions
+routh_hurwitz([1, 6, 11, 6, "K+2"])
 ```
 
-## How It Works
+### Numeric output
 
-### The Routh–Hurwitz Criterion
+```
+  s^3 │   1  1    (+)
+  s^2 │  -4  6    (−)
+  s^1 │ 5/2  0    (+)
+  s^0 │   6  0    (+)
 
-For a polynomial `P(s) = aₙsⁿ + aₙ₋₁sⁿ⁻¹ + ... + a₀`:
+  First column : [1, -4, 5/2, 6]
+  Sign changes : 2
 
-1. **Build the Routh table** using recursive formula
-2. **Count sign changes** in the first column
-3. **Result**: Number of sign changes = Number of poles in right half-plane
+  ❌ UNSTABLE — 2 poles in the right half-plane
+```
 
-### Special Cases Handled
+### Symbolic output
 
-#### Case 1: Zero in First Column
-When the first element of a row is zero (but row is not all zeros):
-- **Solution**: Substitute small epsilon value
-- **Result**: Allows computation to continue
+```
+  s^4 │            1     11  K + 2
+  s^3 │            6      6      0
+  s^2 │           10  K + 2      0
+  s^1 │ 24/5 - 3*K/5      0      0
+  s^0 │        K + 2      0      0
 
-#### Case 2: Entire Row of Zeros
-When all elements of a row become zero:
-- **Solution**: Use auxiliary polynomial from previous row and differentiate
-- **Result**: Extracts information about marginally stable modes
+  Stability conditions (all must hold):
+    • 24/5 - 3*K/5 > 0
+    • K + 2 > 0
+
+  ✅ Asymptotically stable for:  -2 < K < 8
+```
+
+## API
+
+```python
+result = routh_hurwitz(coeffs, K_val=None, show=True)
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `coeffs`  | Coefficients in descending powers. Can include strings with K (e.g. `"K+2"`, `"-10*K"`, `"25+10*K"`). |
+| `K_val`   | If given, substitute K numerically. If `None` and K is present, compute symbolically. |
+| `show`    | Print the table automatically (default `True`). Set to `False` for silent mode. |
+
+The returned `RouthResult` has:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `table` | list | Complete Routh array |
+| `first_column` | list | First column entries |
+| `sign_changes` | int | Sign changes (numeric mode) |
+| `rhp_roots` | int | Right half-plane roots (numeric mode) |
+| `is_stable` | bool | `True` if no RHP roots (numeric mode) |
+| `stability_conditions` | list | Inequalities on K (symbolic mode) |
+| `stable_range` | str | Solved range for K (symbolic mode) |
+| `notes` | list | Special cases encountered |
+
+## Special Cases
+
+Handled automatically:
+
+1. **Zero in first column** → substituted with small ε
+2. **Entire row of zeros** → replaced with derivative of auxiliary polynomial
 
 ## Examples
 
-### Example 1: Stable System
+| Polynomial | Result |
+|-----------|--------|
+| s³ − 4s² + s + 6 | Unstable (2 RHP) |
+| 2s⁴ + s³ + 3s² + 5s + 10 | Unstable (2 RHP) |
+| s³ + 3s + 2 | Unstable (ε case) |
+| s³ + s² + s | Marginally stable |
+| s⁴ + s³ − 3s² − s + 2 | Unstable (zero row) |
+| s⁴ + 6s³ + 11s² + 6s + (K+2) | **−2 < K < 8** |
+| s⁴ + 9s³ + 33s² + (25+10K)s − 10K | **−1.956 < K < 0** |
 
-```python
-from routh import routh_hurwitz, format_routh_table
+## Dependencies
 
-coeffs = [1, 3, 3, 1]  # s³ + 3s² + 3s + 1
-result = routh_hurwitz(coeffs)
+- **Python 3.6+**
+- **sympy** (for symbolic/parametric mode)
 
-print(format_routh_table(result.table, degree=3))
-# Output:
-# s^3  |            1            3
-# s^2  |            3            1
-# s^1  |      2.66667            0
-# s^0  |            1            0
-#
-# Sign changes: 0
-# Unstable poles: 0
-# ✓ STABLE
-```
-
-### Example 2: Unstable System
-
-```python
-coeffs = [1, -1, 2, -2]  # s³ - s² + 2s - 2
-result = routh_hurwitz(coeffs)
-
-print(f"RHP roots: {result.rhp_roots}")
-# Output: RHP roots: 1
-# ✗ UNSTABLE (1 unstable pole)
-```
-
-### Example 3: With Special Cases
-
-```python
-coeffs = [1, 1, 2, 2, 1]  # s⁴ + s³ + 2s² + 2s + 1
-result = routh_hurwitz(coeffs)
-
-print(result.notes)
-# Output: Notes about zero handling, if any
-```
-
-## Command Line
-
-Run the script directly:
-
-```bash
-python routh.py
-```
-
-This runs a default example: `s³ + 2s² + 3s + 4`
-
-## Common Use Cases
-
-### Control System Design
-Quickly verify if a closed-loop transfer function is stable:
-
-```python
-# Closed-loop denominator
-coeffs = [1, 10, 5, 2]  # D(s) = s³ + 10s² + 5s + 2
-result = routh_hurwitz(coeffs)
-assert result.rhp_roots == 0, "System must be stable!"
-```
-
-### Academic Research
-Analyze polynomial stability in networked systems, power systems, manufacturing:
-
-```python
-for test_case in test_cases:
-    result = routh_hurwitz(test_case.polynomial)
-    print(f"Test {test_case.name}: {result.rhp_roots} unstable poles")
-```
-
-### Educational
-Learn the Routh–Hurwitz method step-by-step:
-
-```bash
-python examples.py  # See how the table is built
-```
-
-## Files
-
-```
-routh-hurwitz/
-├── routh.py              # Main module
-├── examples.py           # 5 example cases
-├── README.md             # This file
-├── requirements.txt      # (empty - no dependencies)
-└── .gitignore           # Python cache files
-```
-
-## Testing
-
-Run all examples:
-
-```bash
-python examples.py
-```
-
-Expected output: 5 examples showing stable, unstable, and special cases.
-
-## Mathematical Background
-
-The Routh–Hurwitz criterion states:
-
-> **The number of roots of P(s) in the right half-plane equals the number of sign changes in the first column of the Routh table.**
-
-This avoids computing roots explicitly and is useful for polynomials where numerical root-finding is unstable.
-
-## Numerical Considerations
-
-- **Tolerance** (`tol`): Set higher for ill-conditioned polynomials
-- **Epsilon** (`epsilon`): Used when first column element is zero; affects precision
-- All computation uses floating-point arithmetic
-
-## License
-
-Open source – use freely for research and education.
+Numeric-only usage works with `Fraction` (no sympy needed if you avoid string coefficients).
 
 ## References
 
-- Routh, E. J. (1877). "A Treatise on the Stability of a Given State of Motion"
-- Hurwitz, A. (1895). "Über die Bedingungen, unter welchen eine Gleichung nur Wurzeln mit negativen reellen Teilen besitzt"
+- Routh, E.J. (1877). *A Treatise on the Stability of a Given State of Motion*
+- Hurwitz, A. (1895). *Über die Bedingungen, unter welchen eine Gleichung nur Wurzeln mit negativen reellen Teilen besitzt*
 
-## Support
+## License
 
-For issues or questions:
-1. Check `examples.py` for usage patterns
-2. Review function docstrings in `routh.py`
-3. Run with your own polynomial and inspect `result.notes`
-
----
-
-**Made for control engineers and researchers who need quick stability analysis.**
+MIT — use freely for research and education.
