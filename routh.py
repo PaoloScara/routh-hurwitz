@@ -1,32 +1,29 @@
 #!/usr/bin/env python3
 """
-Routh–Hurwitz Stability Analyzer (symbolic + numeric)
+Routh–Hurwitz Stability Analyzer
 
-Builds the Routh table, counts sign changes, determines stability.
-When coefficients contain a parameter K and no numeric value is given,
-the table is computed symbolically and stability conditions on K are derived.
-
-Handles special cases automatically:
-  - Zero in first column  → ε substitution (numeric) or noted (symbolic)
+Special cases:
+  - Zero in first column  → symbolic ε substitution (shown as ε in output)
   - Entire row of zeros   → auxiliary polynomial derivative method
 
 Usage:
     from routh import routh_hurwitz
 
     routh_hurwitz([1, -4, 1, 6])                        # numeric
-    routh_hurwitz([1, 6, 11, 6, "K+2"], K=5)            # parametric, evaluate at K=5
+    routh_hurwitz([1, 6, 11, 6, "K+2"], K_val=5)        # parametric, evaluate at K=5
     routh_hurwitz([1, 6, 11, 6, "K+2"])                  # symbolic — derive conditions on K
+    routh_hurwitz([1, 0, 3, 2])                          # ε substitution (symbolic)
 """
 
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional, Union
-from fractions import Fraction
 
 import sympy as sp
 
+# Global symbols
 K = sp.Symbol("K", real=True)
-_eps = sp.Symbol("epsilon", positive=True)
+eps = sp.Symbol("ε", positive=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -36,74 +33,75 @@ _eps = sp.Symbol("epsilon", positive=True)
 @dataclass
 class RouthResult:
     """Routh–Hurwitz analysis result."""
-    table: list                     # List[List[sympy.Expr | Fraction]]
+    table: List[List[sp.Expr]]
     degree: int
-    first_column: list
-    # Numeric mode
+    first_column: List[sp.Expr]
+    # Numeric mode (no free symbols)
     sign_changes: Optional[int] = None
     rhp_roots: Optional[int] = None
     is_stable: Optional[bool] = None
-    # Symbolic mode
-    stability_conditions: Optional[list] = None
+    # Symbolic mode (free symbols present)
+    stability_conditions: Optional[List] = None
     stable_range: Optional[str] = None
     notes: List[str] = field(default_factory=list)
     symbolic: bool = False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  Numeric helpers (Fraction-based, exact)
+#  Helpers
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _fmt_frac(v: Fraction) -> str:
-    if v == 0:
-        return "0"
-    if v.denominator == 1:
-        return str(v.numerator)
-    return f"{v.numerator}/{v.denominator}"
-
-
-def _sign_frac(x: Fraction) -> int:
-    if x > 0: return 1
-    if x < 0: return -1
-    return 0
-
-
-def _is_zero_row_frac(row: List[Fraction]) -> bool:
-    return all(v == 0 for v in row)
-
-
-def _aux_deriv_frac(prev_row: List[Fraction], power: int) -> List[Fraction]:
-    result, p = [], power
-    for val in prev_row:
-        if p < 0: break
-        result.append(val * p)
-        p -= 2
-    return result
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  Symbolic helpers (sympy-based)
-# ═══════════════════════════════════════════════════════════════════════════
-
-def _is_zero_sym(expr) -> bool:
+def _is_zero(expr: sp.Expr) -> bool:
+    """Check if a sympy expression is zero."""
     return sp.simplify(expr) == 0
 
 
-def _is_zero_row_sym(row) -> bool:
-    return all(_is_zero_sym(v) for v in row)
+def _is_zero_row(row: List[sp.Expr]) -> bool:
+    return all(_is_zero(v) for v in row)
 
 
-def _aux_deriv_sym(prev_row, power: int):
-    result, p = [], power
+def _has_free(expr: sp.Expr) -> bool:
+    """Check if expression contains K (ignore ε)."""
+    return bool(expr.free_symbols - {eps})
+
+
+def _aux_derivative(prev_row: List[sp.Expr], power: int) -> List[sp.Expr]:
+    """
+    Given a Routh row at s^(power+1) with entries [a, b, c, ...]
+    representing A(s) = a·s^power + b·s^(power-2) + ...
+    return the derivative's row entries for s^(power-1).
+    """
+    result = []
+    p = power
     for val in prev_row:
-        if p < 0: break
-        result.append(sp.simplify(val * p))
+        if p < 0:
+            break
+        result.append(sp.expand(val * p))
         p -= 2
     return result
 
 
+def _fmt(expr: sp.Expr) -> str:
+    """Format a sympy expression compactly for display."""
+    expr = sp.nsimplify(expr, rational=False)
+    if expr.is_number:
+        r = sp.Rational(expr)
+        if r.q == 1:
+            return str(r.p)
+        return f"{r.p}/{r.q}"
+    # Pick shortest among simplify/factor/cancel
+    candidates = set()
+    for fn in (sp.simplify, sp.factor, sp.cancel):
+        try:
+            candidates.add(str(fn(expr)))
+        except Exception:
+            pass
+    candidates.add(str(expr))
+    return min(candidates, key=len)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
-#  Core: routh_hurwitz
+#  Core
 # ═══════════════════════════════════════════════════════════════════════════
 
 def routh_hurwitz(
@@ -130,173 +128,113 @@ def routh_hurwitz(
     RouthResult
     """
     # ── Parse coefficients ──────────────────────────────────────────────
-    parsed = []
+    parsed: List[sp.Expr] = []
     has_K = False
     for c in coeffs:
         if isinstance(c, str):
             has_K = True
-            expr = sp.sympify(c, locals={"K": K})
-            parsed.append(expr)
+            parsed.append(sp.sympify(c, locals={"K": K}))
         else:
             parsed.append(sp.Rational(c))
 
-    # If K_val provided, substitute now → numeric mode
+    # Substitute K if value provided
     if has_K and K_val is not None:
-        parsed = [sp.Rational(v.subs(K, K_val)) if hasattr(v, "subs") else sp.Rational(v) for v in parsed]
-        has_K = False
-
-    symbolic = has_K
-
-    if symbolic:
-        return _routh_symbolic(parsed, show=show)
-    else:
-        return _routh_numeric(parsed, show=show)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  Numeric mode (Fraction-based, exact)
-# ═══════════════════════════════════════════════════════════════════════════
-
-def _routh_numeric(parsed, show: bool) -> RouthResult:
-    resolved = [Fraction(int(v.p), int(v.q)) if hasattr(v, "p") else Fraction(v) for v in parsed]
+        parsed = [sp.nsimplify(v.subs(K, sp.Rational(K_val))) for v in parsed]
 
     # Trim leading zeros
-    while resolved and resolved[0] == 0:
-        resolved.pop(0)
-    if not resolved:
-        raise ValueError("All coefficients are zero.")
-
-    n = len(resolved) - 1
-    cols = (n // 2) + 1
-    rows = n + 1
-    notes: List[str] = []
-    epsilon = Fraction(1, 1000000)
-
-    rt: List[List[Fraction]] = [[Fraction(0)] * cols for _ in range(rows)]
-
-    for i in range(0, len(resolved), 2):
-        if i // 2 < cols: rt[0][i // 2] = resolved[i]
-    for i in range(1, len(resolved), 2):
-        if i // 2 < cols: rt[1][i // 2] = resolved[i]
-
-    row_power = lambda r: n - r
-
-    for r in range(2, rows):
-        if _is_zero_row_frac(rt[r - 1]):
-            pw = row_power(r - 1)
-            deriv = _aux_deriv_frac(rt[r - 2], pw + 1)
-            notes.append(f"s^{pw}: zero row → auxiliary polynomial derivative")
-            for j in range(min(len(deriv), cols)):
-                rt[r - 1][j] = deriv[j]
-
-        if rt[r - 1][0] == 0 and not _is_zero_row_frac(rt[r - 1]):
-            notes.append(f"s^{row_power(r-1)}: zero pivot → ε substitution")
-            rt[r - 1][0] = epsilon
-
-        pivot = rt[r - 1][0]
-        if pivot == 0:
-            pivot = epsilon
-            rt[r - 1][0] = pivot
-
-        for c in range(cols - 1):
-            rt[r][c] = (pivot * rt[r - 2][c + 1] - rt[r - 2][0] * rt[r - 1][c + 1]) / pivot
-
-    first_col = [rt[r][0] for r in range(rows)]
-
-    last_sign = None
-    signs = []
-    for x in first_col:
-        s = _sign_frac(x)
-        if s == 0:
-            s = last_sign if last_sign is not None else 1
-        else:
-            last_sign = s
-        signs.append(s)
-
-    sc = sum(1 for i in range(1, len(signs)) if signs[i] != signs[i - 1])
-
-    result = RouthResult(
-        table=rt, degree=n, first_column=first_col,
-        sign_changes=sc, rhp_roots=sc, is_stable=(sc == 0),
-        notes=notes, symbolic=False,
-    )
-    if show:
-        _print_numeric(result)
-    return result
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  Symbolic mode (sympy-based)
-# ═══════════════════════════════════════════════════════════════════════════
-
-def _routh_symbolic(parsed, show: bool) -> RouthResult:
-    # Trim leading zeros
-    while parsed and _is_zero_sym(parsed[0]):
+    while parsed and _is_zero(parsed[0]):
         parsed.pop(0)
     if not parsed:
         raise ValueError("All coefficients are zero.")
 
-    n = len(parsed) - 1
+    n = len(parsed) - 1  # degree
     cols = (n // 2) + 1
     rows = n + 1
     notes: List[str] = []
 
-    rt = [[sp.Integer(0)] * cols for _ in range(rows)]
+    # ── Build table ─────────────────────────────────────────────────────
+    rt: List[List[sp.Expr]] = [[sp.Integer(0)] * cols for _ in range(rows)]
 
     for i in range(0, len(parsed), 2):
-        if i // 2 < cols: rt[0][i // 2] = parsed[i]
+        if i // 2 < cols:
+            rt[0][i // 2] = parsed[i]
     for i in range(1, len(parsed), 2):
-        if i // 2 < cols: rt[1][i // 2] = parsed[i]
+        if i // 2 < cols:
+            rt[1][i // 2] = parsed[i]
 
-    row_power = lambda r: n - r
+    def row_power(r: int) -> int:
+        return n - r
 
     for r in range(2, rows):
-        if _is_zero_row_sym(rt[r - 1]):
+        # Zero row → auxiliary polynomial derivative
+        if _is_zero_row(rt[r - 1]):
             pw = row_power(r - 1)
-            deriv = _aux_deriv_sym(rt[r - 2], pw + 1)
+            deriv = _aux_derivative(rt[r - 2], pw + 1)
             notes.append(f"s^{pw}: zero row → auxiliary polynomial derivative")
             for j in range(min(len(deriv), cols)):
                 rt[r - 1][j] = deriv[j]
+            for j in range(len(deriv), cols):
+                rt[r - 1][j] = sp.Integer(0)
 
+        # Zero pivot → symbolic ε substitution
         pivot = rt[r - 1][0]
-        if _is_zero_sym(pivot) and not _is_zero_row_sym(rt[r - 1]):
-            notes.append(f"s^{row_power(r-1)}: zero pivot → ε substitution")
-            rt[r - 1][0] = _eps
-            pivot = _eps
+        if _is_zero(pivot) and not _is_zero_row(rt[r - 1]):
+            notes.append(f"s^{row_power(r-1)}: zero in first column → ε substitution")
+            rt[r - 1][0] = eps
+            pivot = eps
+        elif _is_zero(pivot):
+            rt[r - 1][0] = eps
+            pivot = eps
 
-        if _is_zero_sym(pivot):
-            rt[r - 1][0] = _eps
-            pivot = _eps
-
+        # Compute row
         for c in range(cols - 1):
             val = (pivot * rt[r - 2][c + 1] - rt[r - 2][0] * rt[r - 1][c + 1]) / pivot
-            rt[r][c] = sp.simplify(sp.cancel(val))
+            rt[r][c] = sp.cancel(sp.expand(val))
 
+    # ── First column ────────────────────────────────────────────────────
     first_col = [rt[r][0] for r in range(rows)]
 
-    # ── Derive stability conditions ─────────────────────────────────────
-    conditions = []
-    # The first element (leading coefficient) sets the required sign
-    # All elements must have the same sign as the first (assuming > 0 by convention)
-    lead = first_col[0]
-    for r in range(1, rows):
-        expr = sp.simplify(first_col[r])
-        if expr == 0:
-            continue
-        if expr.free_symbols:
-            conditions.append(expr > 0 if lead > 0 or (hasattr(lead, "free_symbols") and not lead.free_symbols) else expr > 0)
-        elif expr.is_number:
-            # constant — just check it's positive
-            pass
+    # Determine mode: symbolic if any first-column entry has K
+    is_symbolic = any(_has_free(e) for e in first_col)
 
-    # Assume leading coeff > 0, all first-column entries must be > 0
+    # ── Numeric analysis ────────────────────────────────────────────────
+    if not is_symbolic:
+        # Evaluate ε → 0⁺ for sign analysis
+        signs = []
+        last_sign = None
+        for expr in first_col:
+            # Take limit ε → 0⁺
+            val = sp.limit(expr, eps, 0, "+") if eps in expr.free_symbols else expr
+            if val == sp.oo or val > 0:
+                s = 1
+            elif val == -sp.oo or val < 0:
+                s = -1
+            elif val == 0:
+                s = last_sign if last_sign is not None else 1
+            else:
+                s = last_sign if last_sign is not None else 1
+            last_sign = s
+            signs.append(s)
+
+        sc = sum(1 for i in range(1, len(signs)) if signs[i] != signs[i - 1])
+
+        result = RouthResult(
+            table=rt, degree=n, first_column=first_col,
+            sign_changes=sc, rhp_roots=sc, is_stable=(sc == 0),
+            notes=notes, symbolic=False,
+        )
+        if show:
+            _print_numeric(result)
+        return result
+
+    # ── Symbolic analysis ───────────────────────────────────────────────
+    # All first-column entries with K must be > 0 (assuming leading coeff > 0)
     all_conds = []
     for expr in first_col:
         expr_s = sp.simplify(expr)
-        if expr_s.free_symbols:  # contains K
+        if _has_free(expr_s):
             all_conds.append(expr_s > 0)
 
-    # Solve for K
     stable_range = None
     if all_conds:
         try:
@@ -325,11 +263,25 @@ def _print_numeric(result: RouthResult) -> None:
     n = result.degree
     cols = len(table[0])
 
-    cells = [[_fmt_frac(v) for v in row] for row in table]
+    cells = [[_fmt(v) for v in row] for row in table]
     col_widths = [max(len(cells[r][c]) for r in range(len(table))) for c in range(cols)]
     label_w = max(len(f"s^{n - r}") for r in range(len(table)))
-
     total_w = label_w + 3 + sum(col_widths) + 2 * (cols - 1)
+
+    # Compute signs via limit ε → 0⁺
+    sign_chars = []
+    last_sign = None
+    for expr in result.first_column:
+        val = sp.limit(expr, eps, 0, "+") if eps in expr.free_symbols else expr
+        if val == sp.oo or val > 0:
+            ch, last_sign = "+", 1
+        elif val == -sp.oo or val < 0:
+            ch, last_sign = "−", -1
+        elif val == 0:
+            ch = "0"
+        else:
+            ch = "?"
+        sign_chars.append(ch)
 
     print()
     print("─" * (total_w + 10))
@@ -341,12 +293,10 @@ def _print_numeric(result: RouthResult) -> None:
         power = n - r
         label = f"s^{power}".rjust(label_w)
         row_str = "  ".join(cells[r][c].rjust(col_widths[c]) for c in range(cols))
-        fc = result.first_column[r]
-        sign_char = "+" if fc > 0 else ("−" if fc < 0 else "0")
-        print(f"  {label} │ {row_str}    ({sign_char})")
+        print(f"  {label} │ {row_str}    ({sign_chars[r]})")
 
     print()
-    fc_str = ", ".join(_fmt_frac(v) for v in result.first_column)
+    fc_str = ", ".join(_fmt(v) for v in result.first_column)
     print(f"  First column : [{fc_str}]")
     print(f"  Sign changes : {result.sign_changes}")
     print()
@@ -368,31 +318,14 @@ def _print_numeric(result: RouthResult) -> None:
 #  Pretty print — Symbolic
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _fmt_sym(expr) -> str:
-    """Format a sympy expression compactly."""
-    expr = sp.nsimplify(expr)
-    if expr.is_number:
-        r = sp.Rational(expr)
-        if r.q == 1:
-            return str(r.p)
-        return f"{r.p}/{r.q}"
-    # Try to express as a single fraction (a + bK)/c
-    expr_f = sp.factor(expr)
-    expr_c = sp.cancel(expr)
-    # Pick the shortest representation
-    candidates = [str(expr), str(expr_f), str(expr_c)]
-    return min(candidates, key=len)
-
-
 def _print_symbolic(result: RouthResult) -> None:
     table = result.table
     n = result.degree
     cols = len(table[0])
 
-    cells = [[_fmt_sym(v) for v in row] for row in table]
+    cells = [[_fmt(v) for v in row] for row in table]
     col_widths = [max(len(cells[r][c]) for r in range(len(table))) for c in range(cols)]
     label_w = max(len(f"s^{n - r}") for r in range(len(table)))
-
     total_w = label_w + 3 + sum(col_widths) + 2 * (cols - 1)
 
     print()
@@ -408,14 +341,11 @@ def _print_symbolic(result: RouthResult) -> None:
         print(f"  {label} │ {row_str}")
 
     print()
-
-    # First column
     print("  First column:")
     for r in range(len(table)):
         power = n - r
-        print(f"    s^{power}:  {_fmt_sym(result.first_column[r])}")
+        print(f"    s^{power}:  {_fmt(result.first_column[r])}")
 
-    # Stability conditions
     if result.stability_conditions:
         print()
         print("  Stability conditions (all must hold):")
@@ -426,7 +356,6 @@ def _print_symbolic(result: RouthResult) -> None:
         print()
         range_display = result.stable_range
         try:
-            # Intersect individual condition solutions as intervals
             intervals = []
             for cond in result.stability_conditions:
                 sol = sp.solveset(cond, K, domain=sp.S.Reals)
@@ -436,7 +365,7 @@ def _print_symbolic(result: RouthResult) -> None:
                 intersection = intervals[0]
                 for iv in intervals[1:]:
                     intersection = intersection.intersect(iv)
-                if hasattr(intersection, 'inf') and hasattr(intersection, 'sup'):
+                if hasattr(intersection, "inf") and hasattr(intersection, "sup"):
                     lo = float(intersection.inf)
                     hi = float(intersection.sup)
                     if lo > -1e10 and hi < 1e10:
@@ -470,5 +399,5 @@ if __name__ == "__main__":
     print("Roots: (s+1)(s−2)(s−3) = 0")
     routh_hurwitz([1, -4, 1, 6])
 
-    print("\nParametric example: s⁴ + 6s³ + 11s² + 6s + (K+2) = 0")
+    print("\nParametric: s⁴ + 6s³ + 11s² + 6s + (K+2) = 0")
     routh_hurwitz([1, 6, 11, 6, "K+2"])

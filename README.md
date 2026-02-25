@@ -1,6 +1,6 @@
 # Routh–Hurwitz Stability Analyzer
 
-A Python tool for analyzing polynomial stability using the **Routh–Hurwitz criterion**, with support for **symbolic parametric analysis**.
+A Python tool for analyzing polynomial stability using the **Routh–Hurwitz criterion**, fully symbolic via `sympy`.
 
 ## Quick Start
 
@@ -24,8 +24,9 @@ routh_hurwitz([1, -4, 1, 6])              # s³ − 4s² + s + 6
 # Parametric with K evaluated
 routh_hurwitz([1, 6, 11, 6, "K+2"], K_val=5)
 
-# Symbolic — leave K_val=None to get stability conditions
+# Symbolic — leave K_val=None to derive stability conditions
 routh_hurwitz([1, 6, 11, 6, "K+2"])
+
 ```
 
 ### Numeric output
@@ -42,7 +43,18 @@ routh_hurwitz([1, 6, 11, 6, "K+2"])
   ❌ UNSTABLE — 2 poles in the right half-plane
 ```
 
-### Symbolic output
+### Symbolic ε (zero pivot)
+
+```
+  s^3 │       1  3    (+)
+  s^2 │       ε  2    (0)
+  s^1 │ 3 - 2/ε  0    (−)
+  s^0 │       2  0    (+)
+
+  ⚠  s^2: zero in first column → ε substitution
+```
+
+### Parametric K output
 
 ```
   s^4 │            1     11  K + 2
@@ -64,30 +76,11 @@ routh_hurwitz([1, 6, 11, 6, "K+2"])
 result = routh_hurwitz(coeffs, K_val=None, show=True)
 ```
 
-| Parameter | Description |
-|-----------|-------------|
-| `coeffs`  | Coefficients in descending powers. Can include strings with K (e.g. `"K+2"`, `"-10*K"`, `"25+10*K"`). |
-| `K_val`   | If given, substitute K numerically. If `None` and K is present, compute symbolically. |
-| `show`    | Print the table automatically (default `True`). Set to `False` for silent mode. |
-
-The returned `RouthResult` has:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `table` | list | Complete Routh array |
-| `first_column` | list | First column entries |
-| `sign_changes` | int | Sign changes (numeric mode) |
-| `rhp_roots` | int | Right half-plane roots (numeric mode) |
-| `is_stable` | bool | `True` if no RHP roots (numeric mode) |
-| `stability_conditions` | list | Inequalities on K (symbolic mode) |
-| `stable_range` | str | Solved range for K (symbolic mode) |
-| `notes` | list | Special cases encountered |
-
 ## Special Cases
 
 Handled automatically:
 
-1. **Zero in first column** → substituted with small ε
+1. **Zero in first column** → symbolic ε substitution (`3 - 2/ε`), sign determined via limit ε → 0⁺
 2. **Entire row of zeros** → replaced with derivative of auxiliary polynomial
 
 ## Examples
@@ -105,9 +98,7 @@ Handled automatically:
 ## Dependencies
 
 - **Python 3.6+**
-- **sympy** (for symbolic/parametric mode)
-
-Numeric-only usage works with `Fraction` (no sympy needed if you avoid string coefficients).
+- **sympy**
 
 ## References
 
