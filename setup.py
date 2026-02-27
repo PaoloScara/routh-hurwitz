@@ -6,7 +6,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 setup(
     name="routh-hurwitz",
     version="2.0.0",
-    author="Paolo Scaramuzza",
+    author="Paolo Scarabaggio",
     description="Routh-Hurwitz stability criterion analyzer with symbolic computation",
     long_description=long_description,
     long_description_content_type="text/markdown",
