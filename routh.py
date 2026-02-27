@@ -347,6 +347,7 @@ def routh_hurwitz(
         )
         if show:
             _print_numeric(result, numeric_format, decimal_places)
+            return None  
         return result
 
     # ── Symbolic analysis ───────────────────────────────────────────────────
@@ -373,6 +374,7 @@ def routh_hurwitz(
     )
     if show:
         _print_symbolic(result, numeric_format, decimal_places)
+        return None  
     return result
 
 
