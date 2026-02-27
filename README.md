@@ -1,13 +1,13 @@
 # Routh–Hurwitz Stability Analyzer
 
-A Python tool for analyzing polynomial stability using the **Routh–Hurwitz criterion**, fully symbolic via `sympy`.
+A Python tool for analyzing polynomial stability using the **Routh–Hurwitz criterion**.
 
 ## Quick Start
 
 ```bash
 git clone https://github.com/PaoloScara/routh-hurwitz.git
 cd routh-hurwitz
-pip install sympy
+pip install -e .
 
 # Run examples
 python examples.py
@@ -27,61 +27,65 @@ routh_hurwitz([1, 6, 11, 6, "K+2"], K_val=5)
 # Symbolic — leave K_val=None to derive stability conditions
 routh_hurwitz([1, 6, 11, 6, "K+2"])
 
+# Decimal format instead of fractions
+routh_hurwitz([1, 2, 3, 1], numeric_format='decimal', decimal_places=3)
 ```
 
 ### Numeric output
 
 ```
-  s^3 │   1  1    (+)
-  s^2 │  -4  6    (−)
-  s^1 │ 5/2  0    (+)
-  s^0 │   6  0    (+)
+==============================
+  ROUTH-HURWITZ STABILITY TABLE
+==============================
 
-  First column : [1, -4, 5/2, 6]
-  Sign changes : 2
+  s^3 |   1  1  [+]
+  s^2 |  -4  6  [-]
+  ----+--------
+  s^1 | 5/2  0  [+]
+  s^0 |   6  0  [+]
 
-  ❌ UNSTABLE — 2 poles in the right half-plane
+==============================
+  First column: [1, -4, 5/2, 6]
+  Sign changes: 2
+==============================
+
+  >> UNSTABLE
+     2 poles in right half-plane
 ```
 
 ### Symbolic ε (zero pivot)
 
 ```
-  s^3 │       1  3    (+)
-  s^2 │       ε  2    (0)
-  s^1 │ 3 - 2/ε  0    (−)
-  s^0 │       2  0    (+)
-
-  ⚠  s^2: zero in first column → ε substitution
+  s^3 |       1  3  [+]
+  s^2 |       ε  2  [0]
+  ----+------------
+  s^1 | 3 - 2/ε  0  [-]
+  s^0 |       2  0  [+]
 ```
 
 ### Parametric K output
 
 ```
-  s^4 │            1     11  K + 2
-  s^3 │            6      6      0
-  s^2 │           10  K + 2      0
-  s^1 │ 24/5 - 3*K/5      0      0
-  s^0 │        K + 2      0      0
+====================================================
+  ROUTH-HURWITZ TABLE (Symbolic Analysis)
+====================================================
 
-  Stability conditions (all must hold):
-    • 24/5 - 3*K/5 > 0
-    • K + 2 > 0
+  s^4 |            1     11  K + 2
+  s^3 |            6      6      0
+  ----+----------------------------
+  s^2 |           10  K + 2      0
+  s^1 | 24/5 - 3*K/5      0      0
+  s^0 |        K + 2      0      0
 
-  ✅ Asymptotically stable for:  -2 < K < 8
+====================================================
+  Stability Conditions (all must hold):
+====================================================
+  1. 24/5 - 3*K/5 > 0
+  2. K + 2 > 0
+
+  >> Asymptotically stable for:
+     -2 < K < 8
 ```
-
-## API
-
-```python
-result = routh_hurwitz(coeffs, K_val=None, show=True)
-```
-
-## Special Cases
-
-Handled automatically:
-
-1. **Zero in first column** → symbolic ε substitution (`3 - 2/ε`), sign determined via limit ε → 0⁺
-2. **Entire row of zeros** → replaced with derivative of auxiliary polynomial
 
 ## Examples
 
@@ -97,8 +101,9 @@ Handled automatically:
 
 ## Dependencies
 
-- **Python 3.6+**
-- **sympy**
+- Python ≥ 3.8
+- sympy ≥ 1.12
+- numpy ≥ 1.24.0
 
 ## References
 
